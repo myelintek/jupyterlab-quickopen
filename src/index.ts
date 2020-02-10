@@ -18,15 +18,20 @@ interface QuickOpenResponse {
 }
 
 /** Makes a HTTP request for the server-side quick open scan */
-async function fetchContents(path: string, excludes: string[]): Promise<QuickOpenResponse> {
+async function fetchContents(path: string, excludes: string[], exclude_paths:string[], max_load: number): Promise<QuickOpenResponse> {
   const query = excludes
     .map(exclude => {
       return "excludes=" + encodeURIComponent(exclude);
     })
     .join("&");
+  const query_2 = exclude_paths
+    .map(exclude_path => {
+      return "exclude_paths=" + encodeURIComponent(exclude_path);
+    })
+    .join("&");
 
   const settings = ServerConnection.makeSettings();
-  const fullUrl = URLExt.join(settings.baseUrl, "/api/quickopen") + "?" + query + "&path=" + path;
+  const fullUrl = URLExt.join(settings.baseUrl, "/api/quickopen") + "?" + query + "&" + query_2 + "&path=" + path + "&max_load=" + max_load;
   const response = await ServerConnection.makeRequest(fullUrl, { method: "GET" }, settings);
   if (response.status !== 200) {
     throw new ServerConnection.ResponseError(response);
@@ -71,7 +76,7 @@ class QuickOpenWidget extends CommandPalette {
 
     // Fetch the current contents from the server
     let path = this._settings.relativeSearch ? this._fileBrowser.model.path : "";
-    let response = await fetchContents(path, <string[]>this._settings.excludes);
+    let response = await fetchContents(path, <string[]>this._settings.excludes, <string[]>this._settings.exclude_paths, <number>this._settings.max_load);
 
     // Remove all paths from the view
     this.clearItems();

@@ -11,11 +11,24 @@
       "items": { "type": "string" },
       "default": ["node_modules", "__pycache__"]
     },
+    "exclude_paths": {
+      "title": "Exclude Path Patterns",
+      "description": "Directory Path patterns to exclude from the list",
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["/mlsteam/input"]
+    },
     "relativeSearch": {
       "title": "Relative Search",
       "description": "Whether to search from currently selected directory",
       "type": "boolean",
-      "default": false
+      "default": true
+    },
+    "max_load": {
+      "title": "Max file for preload",
+      "description": "If too large, maybe network get stucked or lab crash.",
+      "type": "number",
+      "default": 1000
     }
   },
   "additionalProperties": false,
