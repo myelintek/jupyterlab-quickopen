@@ -17,8 +17,12 @@ interface QuickOpenResponse {
   readonly scanSeconds: number;
 }
 
+async function sleep(ms = 0) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 /** Makes a HTTP request for the server-side quick open scan */
-async function fetchContents(path: string, excludes: string[], exclude_paths:string[], max_load: number): Promise<QuickOpenResponse> {
+async function fetchContents(path: string, excludes: string[], exclude_paths:string[], max_load: number, keyword: string): Promise<QuickOpenResponse> {
   const query = excludes
     .map(exclude => {
       return "excludes=" + encodeURIComponent(exclude);
@@ -31,7 +35,7 @@ async function fetchContents(path: string, excludes: string[], exclude_paths:str
     .join("&");
 
   const settings = ServerConnection.makeSettings();
-  const fullUrl = URLExt.join(settings.baseUrl, "/api/quickopen") + "?" + query + "&" + query_2 + "&path=" + path + "&max_load=" + max_load;
+  const fullUrl = URLExt.join(settings.baseUrl, "/api/quickopen") + "?" + query + "&" + query_2 + "&path=" + path + "&max_load=" + max_load + "&keyword=" + encodeURIComponent(keyword);
   const response = await ServerConnection.makeRequest(fullUrl, { method: "GET" }, settings);
   if (response.status !== 200) {
     throw new ServerConnection.ResponseError(response);
@@ -46,6 +50,8 @@ async function fetchContents(path: string, excludes: string[], exclude_paths:str
 class QuickOpenWidget extends CommandPalette {
   private _pathSelected = new Signal<this, string>(this);
   private _settings: ReadonlyJSONObject;
+  private last_keyword: string;
+  private update_time: number;
   private _fileBrowser: FileBrowser;
 
   constructor(factory: IFileBrowserFactory, options: CommandPalette.IOptions) {
@@ -56,6 +62,8 @@ class QuickOpenWidget extends CommandPalette {
     this.title.caption = "Quick Open";
 
     this._fileBrowser = factory.defaultBrowser;
+    this.update_time = Date.now();
+    this.last_keyword = ''
   }
 
   /** Signal when a selected path is activated. */
@@ -76,7 +84,7 @@ class QuickOpenWidget extends CommandPalette {
 
     // Fetch the current contents from the server
     let path = this._settings.relativeSearch ? this._fileBrowser.model.path : "";
-    let response = await fetchContents(path, <string[]>this._settings.excludes, <string[]>this._settings.exclude_paths, <number>this._settings.max_load);
+    let response = await fetchContents(path, <string[]>this._settings.excludes, <string[]>this._settings.exclude_paths, <number>this._settings.max_load, this.inputNode.value);
 
     // Remove all paths from the view
     this.clearItems();
@@ -100,7 +108,51 @@ class QuickOpenWidget extends CommandPalette {
         this.addItem({ command, category });
       }
     }
+    super.onUpdateRequest(msg)
   }
+
+  protected async onUpdateRequest(msg: Message) {
+    // Fetch the current contents from the server
+    if(Date.now() - this.update_time < 2000 || this.last_keyword == this.inputNode.value){
+      await sleep(1000);
+      this.onUpdateRequest(msg)
+      return
+    }
+    else{
+      let my_keyword = this.inputNode.value
+      await sleep(1000);
+      if(my_keyword != this.inputNode.value){return;}
+      this.update_time = Date.now(); this.last_keyword = this.inputNode.value;
+    }
+
+    let path = this._settings.relativeSearch ? this._fileBrowser.model.path : "";
+    let response = await fetchContents(path, <string[]>this._settings.excludes, <string[]>this._settings.exclude_paths, <number>this._settings.max_load, this.inputNode.value);
+
+    // Remove all paths from the view
+    this.clearItems();
+
+    for (let category in response.contents) {
+      for (let fn of response.contents[category]) {
+        // Creates commands that are relative file paths on the server
+        let command = `${category}/${fn}`;
+        if (!this.commands.hasCommand(command)) {
+          // Only add the command to the registry if it does not yet exist
+          // TODO: Track disposables and remove
+          this.commands.addCommand(command, {
+            label: fn,
+            execute: () => {
+              // Emit a selection signal
+              this._pathSelected.emit(command);
+            }
+          });
+        }
+        // Make the file visible under its parent directory heading
+        this.addItem({ command, category });
+      }
+    }
+    super.onUpdateRequest(msg)
+  }
+
 }
 
 /**

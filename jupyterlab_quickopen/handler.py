@@ -1,6 +1,6 @@
 import os
 import time
-
+import re
 from fnmatch import fnmatch, fnmatchcase
 
 from notebook.base.handlers import APIHandler
@@ -10,6 +10,9 @@ from tornado.escape import json_encode
 
 
 class QuickOpenHandler(APIHandler):
+    def __init__(self, *args, **kwargs):
+        super(QuickOpenHandler, self).__init__(*args, **kwargs)
+
     @property
     def contents_manager(self):
         """Currently configured notebook server ContentsManager."""
@@ -42,7 +45,18 @@ class QuickOpenHandler(APIHandler):
             (self.contents_manager.is_hidden(entry.path) and not self.contents_manager.allow_hidden)
         )
 
-    def scan_disk(self, path, excludes, exclude_paths, max_load, on_disk=None, count=None):
+    def isSubSeq(self, str1, str2):
+        m = len(str1)
+        n = len(str2)
+        j = 0
+        i = 0
+        while j<m and i<n:
+            if str1[j] == str2[i]:
+                j=j+1
+            i=i+1
+        return j==m
+
+    def scan_disk(self, path, excludes, exclude_paths, max_load, re_pattern=None, on_disk=None, count=None):
         if on_disk is None:
             on_disk = {}
         if count is None:
@@ -55,8 +69,13 @@ class QuickOpenHandler(APIHandler):
             if self.should_hide(entry, excludes):
                 continue
             elif entry.is_dir():
-                self.scan_disk(entry.path, excludes, exclude_paths, max_load, on_disk, count)
+                self.scan_disk(entry.path, excludes, exclude_paths, max_load, re_pattern, on_disk, count)
             elif entry.is_file():
+                if re_pattern:
+                    #if not re_pattern.match(entry.path):
+                    if not self.isSubSeq(re_pattern.lower(), entry.path.lower()):
+                        continue
+                print(entry.path)
                 parent = os.path.relpath(os.path.dirname(entry.path), self.root_dir)
                 on_disk.setdefault(parent, []).append(entry.name)
                 count['num'] += 1
@@ -82,13 +101,25 @@ class QuickOpenHandler(APIHandler):
         exclude_paths = set(self.get_arguments('exclude_paths'))
         current_path = self.get_argument('path')
         max_load = int(self.get_argument('max_load'))
-        if not max_load: max_load = 1000
+        keyword = self.get_argument('keyword')
+
+        if not max_load: 
+            max_load = 10000
+
         start_ts = time.time()
         if current_path:
             full_path = os.path.join(self.root_dir, current_path)
         else:
             full_path = self.root_dir
-        contents_by_path = self.scan_disk(full_path, excludes, exclude_paths, max_load)
+        if keyword:
+            #pattern = '\S*?' + '\S*?'.join(re.escape(w) for w in keyword if w != ' ') + '\S*?'
+            pattern = ''.join(w for w in keyword if w != ' ')
+            print(pattern)
+            #re_pattern = re.compile(pattern)
+            re_pattern = pattern
+            contents_by_path = self.scan_disk(full_path, excludes, exclude_paths, max_load, re_pattern)
+        else:
+            contents_by_path = self.scan_disk(full_path, excludes, exclude_paths, max_load)
 
         #def get_sum(dt):
         #    s = 0
